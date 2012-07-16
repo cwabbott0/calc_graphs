@@ -1,5 +1,17 @@
 #ifndef GRAPH_H
 
+//Note: we make the same assumptions as geng about graph size
+
+#ifndef MAXN
+#define MAXN 32
+#endif
+
+#if MAXN > 32
+#error "Can't have MAXN greater than 32"
+#endif
+
+#define ONE_WORD_SETS
+
 #include "nauty.h"
 
 //Represents when there is no connection
