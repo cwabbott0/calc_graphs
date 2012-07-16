@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <mpi.h>
+#include <math.h>
 #include "graph.h"
 
 #define GENERATOR_OUTPUT_TAG 1
@@ -11,8 +12,22 @@
 #define WORKER_KILL_TAG 7
 #define WORKER_NUM_VERTICES_TAG 8
 
+#ifdef SETWORD_SHORT
+#define MPI_SETWORD MPI_UNSIGNED_SHORT
+#else 
+#ifdef SETWORD_INT
+#define MPI_SETWORD MPI_UNSIGNED
+#else
+#ifdef SETWORD_LONG
+#define MPI_SETWORD MPI_UNSIGNED_LONG
+#else
+#define MPI_SETWORD MPI_UNSIGNED_LONG_LONG
+#endif
+#endif
+#endif
+
 typedef struct _queue_element {
-	problem_graph graph;
+	graph *graph;
 	struct _queue_element *next;
 } queue_element;
 
@@ -49,7 +64,7 @@ void empty_queue(queue *my_queue) {
 	while (element != NULL) {
 		queue_element *temp = element;
 		element = element->next;
-		free(temp->graph.distances);
+		free(temp->graph);
 		free(temp);
 	}
 }
@@ -62,14 +77,12 @@ int geng(int argc, char *argv[]); //entry point for geng
 void geng_callback(FILE *file, graph *g, int n)
 {
 	//printf("Generator: got graph\n");
-	problem_graph graph = nauty_to_problem(g, n);
-	MPI_Send(graph.distances,
-		 n*n,
-		 MPI_INT,
+	MPI_Send(g,
+		 get_nauty_graph_size(n),
+		 MPI_SETWORD,
 		 0,
 		 GENERATOR_OUTPUT_TAG,
 		 MPI_COMM_WORLD);
-	free(graph.distances);
 }
 
 //Wrapper around the geng entry function
@@ -148,8 +161,7 @@ void master()
 	};
 	
 	MPI_Comm_size(MPI_COMM_WORLD, &ntasks);
-	problem_graph *workers = malloc((ntasks - 2) *
-											 sizeof(problem_graph));
+	graph **workers = calloc((ntasks - 2) * sizeof(graph*), 1);
 	
 	{
 		int min_result = (int) GRAPH_INFINITY;
@@ -159,8 +171,6 @@ void master()
 		};
 		
 		for (int i = 0; i < ntasks - 2; i++) {
-			workers[i].distances = NULL;
-			workers[i].n = -1;
 			MPI_Send(&num_vertices,
 					 1,
 					 MPI_INT,
@@ -189,12 +199,12 @@ void master()
 					printf("Master: got graph from generator\n");
 					//Get the graph and add it to the queue
 					element = malloc(sizeof(queue_element));
-					element->graph.distances = malloc(num_vertices * num_vertices * sizeof(int));
-					element->graph.n = num_vertices;
+					element->graph = malloc(get_nauty_graph_size(num_vertices)
+											* sizeof(setword));
 					element->next = NULL;
-					MPI_Recv(element->graph.distances,
-							 num_vertices * num_vertices,
-							 MPI_INT,
+					MPI_Recv(element->graph,
+							 get_nauty_graph_size(num_vertices),
+							 MPI_SETWORD,
 							 1,
 							 GENERATOR_OUTPUT_TAG,
 							 MPI_COMM_WORLD,
@@ -213,15 +223,15 @@ void master()
 					
 					//Empty the queue as much as possible
 					for (int i = 0; i < ntasks - 2; i++) {
-						if (workers[i].n != -1)
+						if (workers[i])
 							continue;
 						element = pop_element(&my_queue);
 						if(element == NULL)
 							break; //queue is empty
 						printf("Master: sending graph to task %d\n", i + 2);
-						MPI_Send(element->graph.distances,
-								 num_vertices*num_vertices,
-								 MPI_INT,
+						MPI_Send(element->graph,
+								 get_nauty_graph_size(num_vertices),
+								 MPI_SETWORD,
 								 i + 2,
 								 WORKER_INPUT_TAG,
 								 MPI_COMM_WORLD);
@@ -259,9 +269,9 @@ void master()
 						push_element(element, &min_graphs);
 					}
 					else {
-						free(workers[status.MPI_SOURCE - 2].distances);
+						free(workers[status.MPI_SOURCE - 2]);
 					}
-					workers[status.MPI_SOURCE - 2].n = -1;
+					workers[status.MPI_SOURCE - 2] = NULL;
 					
 					element = pop_element(&my_queue);
 					if(element == NULL) {
@@ -270,7 +280,7 @@ void master()
 							//Check to see if we're all done
 							master_done = 1;
 							for (int i = 0; i < ntasks - 2; i++) {
-								if (workers[i].n != -1) {
+								if (workers[i]) {
 									master_done = 0;
 								}
 							}
@@ -280,9 +290,9 @@ void master()
 					
 					printf("Master: sending new graph to %d\n", status.MPI_SOURCE);
 					
-					MPI_Send(element->graph.distances,
-							 num_vertices*num_vertices,
-							 MPI_INT,
+					MPI_Send(element->graph,
+							 get_nauty_graph_size(num_vertices),
+							 MPI_SETWORD,
 							 status.MPI_SOURCE,
 							 WORKER_INPUT_TAG,
 							 MPI_COMM_WORLD);
@@ -292,26 +302,27 @@ void master()
 		}
 	
 		for (int i = 0; i < ntasks - 2; i++) {
-			if(workers[i].n != -1)
-				free(workers[i].distances);
+			if(workers[i])
+				free(workers[i]);
 		}
 		
 		int num_opt_solutions = 0;
+		int m = ceil((float)num_vertices/WORDSIZE);
 		while ((element = pop_element(&min_graphs)) != NULL) {
 			num_opt_solutions++;
 			for (int i = 0; i < num_vertices; i++) {
 				for (int j = 0; j < num_vertices; j++) {
-					if (element->graph.distances[num_vertices*i + j] == GRAPH_INFINITY) {
-						printf("n,");
+					if (ISELEMENT(element->graph + m*i, j)) {
+						printf("y,");
 					}
 					else {
-						printf("y,");
+						printf("n,");
 					}
 				}
 				printf("\n");
 			}
 			printf("\n");
-			free(element->graph.distances);
+			free(element->graph);
 			free(element);
 		}
 		printf("minimum distance: %d\n", min_result);
@@ -330,40 +341,47 @@ void master()
 
 void slave() {
 	MPI_Status status;
-	problem_graph graph;
+	problem_graph my_graph;
+	graph *nauty_graph;
 	
 	while (1) {
 		MPI_Probe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
 		switch (status.MPI_TAG) {
 			case WORKER_NUM_VERTICES_TAG:
-				MPI_Recv(&graph.n,
+				MPI_Recv(&my_graph.n,
 						 1,
 						 MPI_INT,
 						 MPI_ANY_SOURCE,
 						 WORKER_NUM_VERTICES_TAG,
 						 MPI_COMM_WORLD,
 						 &status);
-				if(graph.distances)
-					free(graph.distances);
-				graph.distances = malloc(graph.n*graph.n*sizeof(int));
+				if(my_graph.distances)
+					free(my_graph.distances);
+				if(nauty_graph)
+					free(nauty_graph);
+				my_graph.distances = malloc(my_graph.n*my_graph.n*sizeof(int));
+				nauty_graph = malloc(get_nauty_graph_size(my_graph.n)*sizeof(setword));
 				//printf("Worker: got %d vertices\n", graph.n);
 				break;
 				
 			case WORKER_KILL_TAG:
-				free(graph.distances);
+				free(my_graph.distances);
+				free(nauty_graph);
 				return;
 				
 			case WORKER_INPUT_TAG:
-				MPI_Recv(graph.distances,
-						 graph.n*graph.n,
-						 MPI_INT,
+				MPI_Recv(nauty_graph,
+						 get_nauty_graph_size(my_graph.n),
+						 MPI_SETWORD,
 						 MPI_ANY_SOURCE,
 						 WORKER_INPUT_TAG,
 						 MPI_COMM_WORLD,
 						 &status);
 				//printf("Worker: got input\n");
 				
-				int result = minimum_total_distance(graph);
+				nauty_to_problem(nauty_graph, my_graph);
+				
+				int result = minimum_total_distance(my_graph);
 				//printf("Worker: sending result %d\n", result);
 				MPI_Send(&result,
 						 1,

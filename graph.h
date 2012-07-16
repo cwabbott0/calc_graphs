@@ -12,7 +12,8 @@ typedef struct {
 	int n; //number of vertices
 } problem_graph;
 
-problem_graph nauty_to_problem(graph *g, int n);
+void nauty_to_problem(graph *nauty_graph, problem_graph graph);
+int get_nauty_graph_size(int n);
 int minimum_total_distance(problem_graph g);
 
 #define GRAPH_H

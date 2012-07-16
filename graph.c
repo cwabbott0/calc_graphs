@@ -2,27 +2,30 @@
 #include <stdlib.h>
 #include <math.h>
 
-problem_graph nauty_to_problem(graph *g, int n) {
-	problem_graph out;
-	int m = ceil((float)n/WORDSIZE); //# of setword's per set
-	out.n = n;
-	out.distances = malloc(n*n*sizeof(*(out.distances)));
-	for (int i = 0; i < n; i++) {
-		for (int j = 0; j < n; j++) {
+void nauty_to_problem(graph *g, problem_graph graph) {
+	int m = ceil((float)graph.n/WORDSIZE); //# of setword's per set
+	for (int i = 0; i < graph.n; i++) {
+		for (int j = 0; j < graph.n; j++) {
 			if (i == j) {
-				out.distances[n*i + j] = 0;
+				graph.distances[graph.n*i + j] = 0;
 			}
 			else {
 				if(ISELEMENT(g + m*i, j)) {
-					out.distances[n*i + j] = 1;
+					graph.distances[graph.n*i + j] = 1;
 				}
 				else {
-					out.distances[n*i + j] = GRAPH_INFINITY;
+					graph.distances[graph.n*i + j] = GRAPH_INFINITY;
 				}
 			}
 		}
 	}
-	return out;
+}
+
+// gets the size of a graph, in bytes, in nauty format given n
+int get_nauty_graph_size(int n)
+{
+	int m = ceil((float) n / WORDSIZE);
+	return n * m;
 }
 
 int sum_total_distances(problem_graph g) {
