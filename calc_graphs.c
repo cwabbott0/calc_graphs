@@ -196,7 +196,7 @@ void master()
 			
 			switch(status.MPI_TAG){
 				case GENERATOR_OUTPUT_TAG:
-					printf("Master: got graph from generator\n");
+					//printf("Master: got graph from generator\n");
 					//Get the graph and add it to the queue
 					element = malloc(sizeof(queue_element));
 					element->graph = malloc(get_nauty_graph_size(num_vertices)
@@ -228,7 +228,7 @@ void master()
 						element = pop_element(&my_queue);
 						if(element == NULL)
 							break; //queue is empty
-						printf("Master: sending graph to task %d\n", i + 2);
+						//printf("Master: sending graph to task %d\n", i + 2);
 						MPI_Send(element->graph,
 								 get_nauty_graph_size(num_vertices),
 								 MPI_SETWORD,
@@ -255,8 +255,8 @@ void master()
 							 MPI_COMM_WORLD,
 							 &status);
 					
-					printf("Master: got result from %d: %d\n", 
-						   status.MPI_SOURCE, result);
+					/*printf("Master: got result from %d: %d\n", 
+						   status.MPI_SOURCE, result);*/
 					
 					if (result <= min_result) {
 						if (result < min_result) {
@@ -288,7 +288,7 @@ void master()
 						break;
 					}
 					
-					printf("Master: sending new graph to %d\n", status.MPI_SOURCE);
+					//printf("Master: sending new graph to %d\n", status.MPI_SOURCE);
 					
 					MPI_Send(element->graph,
 							 get_nauty_graph_size(num_vertices),
