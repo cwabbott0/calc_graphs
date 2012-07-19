@@ -3,14 +3,13 @@
 #include <math.h>
 
 void nauty_to_problem(graph *g, problem_graph graph) {
-	int m = ceil((float)graph.n/WORDSIZE); //# of setword's per set
 	for (int i = 0; i < graph.n; i++) {
 		for (int j = 0; j < graph.n; j++) {
 			if (i == j) {
 				graph.distances[graph.n*i + j] = 0;
 			}
 			else {
-				if(ISELEMENT(g + m*i, j)) {
+				if(ISELEMENT(g + i, j)) {
 					graph.distances[graph.n*i + j] = 1;
 				}
 				else {
@@ -21,11 +20,10 @@ void nauty_to_problem(graph *g, problem_graph graph) {
 	}
 }
 
-// gets the size of a graph, in bytes, in nauty format given n
+// gets the size of a graph, in setwords, in nauty format given n
 int get_nauty_graph_size(int n)
 {
-	int m = ceil((float) n / WORDSIZE);
-	return n * m;
+	return n;
 }
 
 int sum_total_distances(problem_graph g) {
