@@ -6,11 +6,10 @@
 #define GENERATOR_OUTPUT_TAG 1
 #define GENERATOR_DONE_TAG 2
 #define GENERATOR_KILL_TAG 3
-#define GENERATOR_INPUT_TAG 4
 #define WORKER_OUTPUT_TAG 5
 #define WORKER_INPUT_TAG 6
 #define WORKER_KILL_TAG 7
-#define WORKER_NUM_VERTICES_TAG 8
+#define NUM_VERTICES_TAG 8
 
 #ifdef SETWORD_SHORT
 #define MPI_SETWORD MPI_UNSIGNED_SHORT
@@ -67,6 +66,13 @@ void empty_queue(queue *my_queue) {
 		free(temp->graph);
 		free(temp);
 	}
+	
+	my_queue->first = my_queue->last = NULL;
+}
+
+int queue_is_empty(queue my_queue)
+{
+	return my_queue.first == NULL && my_queue.last == NULL;
 }
 
 int geng(int argc, char *argv[]); //entry point for geng
@@ -86,26 +92,24 @@ void geng_callback(FILE *file, graph *g, int n)
 }
 
 //Wrapper around the geng entry function
-//n is the number of vertices, m is the number of edges
-int call_geng(unsigned int n, unsigned int m)
+//n is the number of vertices
+int call_geng(unsigned int n)
 {
-	char n_buf[10], m_buf[10];
+	char n_buf[10];
 	char *geng_args[] = {
 		"geng",
 		"-ucq",
-		"",
+		"-D3",
 		""
 	};
 	sprintf(n_buf, "%d", n);
-	sprintf(m_buf, "%d", m);
-	geng_args[2] = n_buf;
-	geng_args[3] = m_buf;
+	geng_args[3] = n_buf;
 	return geng(4, geng_args);
 }
 
 void generator()
 {
-	int num_verts_and_edges[2], geng_result;
+	int num_verts, geng_result;
 	MPI_Status status;
 	while(1) {
 		MPI_Probe(
@@ -115,23 +119,22 @@ void generator()
 			 &status);
 		
 		if(status.MPI_TAG == GENERATOR_KILL_TAG) {
-			//printf("Generator: got kill message, returning...\n");
+			printf("Generator: got kill message, returning...\n");
 			return;
 		}
 		
 		MPI_Recv(
-				 num_verts_and_edges,
-				 2,
+				 &num_verts,
+				 1,
 				 MPI_INT,
 				 MPI_ANY_SOURCE,
 				 MPI_ANY_TAG,
 				 MPI_COMM_WORLD,
 				 &status);
-		//printf("Generator: got %d verts and %d edges\n",
-			   //num_verts_and_edges[0], num_verts_and_edges[1]);
+		//printf("Generator: got %d verts\n",
+			   //num_verts);
 		
-		if(geng_result = call_geng(num_verts_and_edges[0],
-			num_verts_and_edges[1])) {
+		if(geng_result = call_geng(num_verts)) {
 			fprintf(stderr, "geng failed: %d\n", geng_result);
 			return;
 		}
@@ -152,7 +155,7 @@ void master()
 {
 	MPI_Status status;
 	int ntasks;
-	int num_vertices = 11, num_edges = 14;
+	int num_vertices = 8;
 	int generator_done = 0, master_done = 0;
 	queue_element *element;
 	queue my_queue = {
@@ -170,23 +173,13 @@ void master()
 			last: NULL
 		};
 		
-		for (int i = 0; i < ntasks - 2; i++) {
+		for (int i = 1; i < ntasks; i++)
 			MPI_Send(&num_vertices,
 					 1,
 					 MPI_INT,
-					 2 + i,
-					 WORKER_NUM_VERTICES_TAG,
+					 i,
+					 NUM_VERTICES_TAG,
 					 MPI_COMM_WORLD);
-		}
-	
-		int num_verts_and_edges[2] = {num_vertices, num_edges};
-		//printf("Sending start message to generator...\n"); 
-		MPI_Send(num_verts_and_edges,
-				 2,
-				 MPI_INT,
-				 1,
-				 GENERATOR_INPUT_TAG,
-				 MPI_COMM_WORLD);
 		
 		master_done = 0;
 		int result;
@@ -244,6 +237,18 @@ void master()
 					MPI_Recv(0, 0, MPI_INT, 1, GENERATOR_DONE_TAG, MPI_COMM_WORLD,
 							 &status);
 					generator_done = 1;
+					
+					//If the generator is done and we aren't processing anything,
+					//Then we're done as well
+					if(queue_is_empty(my_queue))
+					{
+						master_done = 1;
+						for (int i = 0; i < ntasks - 2; i++) {
+							if (workers[i]) {
+								master_done = 0;
+							}
+						}
+					}
 					break;
 					
 				case WORKER_OUTPUT_TAG:
@@ -255,8 +260,8 @@ void master()
 							 MPI_COMM_WORLD,
 							 &status);
 					
-					/*printf("Master: got result from %d: %d\n", 
-						   status.MPI_SOURCE, result);*/
+					//printf("Master: got result from %d: %d\n", 
+						   //status.MPI_SOURCE, result);
 					
 					if (result <= min_result) {
 						if (result < min_result) {
@@ -273,11 +278,14 @@ void master()
 					}
 					workers[status.MPI_SOURCE - 2] = NULL;
 					
+					//Since this worker is done, try to assign it some work
+					//from the queue
 					element = pop_element(&my_queue);
 					if(element == NULL) {
+						// If the generator is done and we're not processing
+						// any more graphs, than we're done
 						if (generator_done) {
-							printf("Master: checking to see if done...\n");
-							//Check to see if we're all done
+							//printf("Master: checking to see if done...\n");
 							master_done = 1;
 							for (int i = 0; i < ntasks - 2; i++) {
 								if (workers[i]) {
@@ -347,12 +355,12 @@ void slave() {
 	while (1) {
 		MPI_Probe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
 		switch (status.MPI_TAG) {
-			case WORKER_NUM_VERTICES_TAG:
+			case NUM_VERTICES_TAG:
 				MPI_Recv(&my_graph.n,
 						 1,
 						 MPI_INT,
 						 MPI_ANY_SOURCE,
-						 WORKER_NUM_VERTICES_TAG,
+						 NUM_VERTICES_TAG,
 						 MPI_COMM_WORLD,
 						 &status);
 				if(my_graph.distances)

@@ -26,6 +26,23 @@ int get_nauty_graph_size(int n)
 	return n;
 }
 
+// gets the degree and number of links simultaneously
+void get_nauty_degree_num_links(graph *g, int n, int *degree, int *num_links)
+{
+	*degree = 0;
+	*num_links = 0;
+	for (int i = 0; i < n; i++)
+	{
+		int node_degree = POPCOUNT(g[i]);
+		if (node_degree > *degree)
+			*degree = node_degree;
+		*num_links += node_degree;
+	}
+	
+	//We counted each link twice, so divide by 2
+	*num_links /= 2;
+}
+
 int sum_total_distances(problem_graph g) {
 	int ret = 0;
 	for (int i = 0; i < g.n; i++)
