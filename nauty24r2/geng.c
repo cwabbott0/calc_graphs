@@ -1109,6 +1109,7 @@ userautomproc(int count, permutation *p, int *orbits,
         for (i = lo; i < hi; ++i)
         {
             if ((w = xset[i] & moved) == 0) continue;
+			/* pxi = xset[i] under p */
             pxi = xset[i] & ~moved;
             while (w)
             {

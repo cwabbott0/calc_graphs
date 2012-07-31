@@ -99,7 +99,7 @@ int call_geng(unsigned int n)
 	char *geng_args[] = {
 		"geng",
 		"-ucq",
-		"-D3",
+		"-D4",
 		""
 	};
 	sprintf(n_buf, "%d", n);
@@ -155,7 +155,7 @@ void master()
 {
 	MPI_Status status;
 	int ntasks;
-	int num_vertices = 8;
+	int num_vertices = 14;
 	int generator_done = 0, master_done = 0;
 	queue_element *element;
 	queue my_queue = {
@@ -350,7 +350,8 @@ void master()
 void slave() {
 	MPI_Status status;
 	problem_graph my_graph;
-	graph *nauty_graph;
+	graph *nauty_graph = NULL;
+	my_graph.distances = NULL;
 	
 	while (1) {
 		MPI_Probe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
