@@ -6,10 +6,12 @@
 #define GENERATOR_OUTPUT_TAG 1
 #define GENERATOR_DONE_TAG 2
 #define GENERATOR_KILL_TAG 3
-#define WORKER_OUTPUT_TAG 5
-#define WORKER_INPUT_TAG 6
-#define WORKER_KILL_TAG 7
-#define NUM_VERTICES_TAG 8
+#define GENERATOR_PAUSE_TAG 4
+#define GENERATOR_RESUME_TAG 5
+#define WORKER_OUTPUT_TAG 6
+#define WORKER_INPUT_TAG 7
+#define WORKER_KILL_TAG 8
+#define NUM_VERTICES_TAG 9
 
 #ifdef SETWORD_SHORT
 #define MPI_SETWORD MPI_UNSIGNED_SHORT
@@ -25,6 +27,9 @@
 #endif
 #endif
 
+#define MAX_ELEMS_IN_QUEUE 16384
+#define MIN_ELEMS_IN_QUEUE 1024
+
 typedef struct _queue_element {
 	graph *graph;
 	struct _queue_element *next;
@@ -32,6 +37,7 @@ typedef struct _queue_element {
 
 typedef struct {
 	queue_element *first, *last;
+	unsigned num_elems;
 } queue;
 
 void push_element(queue_element *element, queue *my_queue) {
@@ -43,6 +49,7 @@ void push_element(queue_element *element, queue *my_queue) {
 		my_queue->first->next = element;
 		my_queue->first = element;
 	}
+	my_queue->num_elems++;
 }
 
 queue_element *pop_element(queue *my_queue) {
@@ -55,6 +62,7 @@ queue_element *pop_element(queue *my_queue) {
 	if(my_queue->last == NULL)
 		my_queue->first = NULL;
 	//printf("popping %p from queue\n", ret);
+	my_queue->num_elems--;
 	return ret;
 }
 
@@ -68,6 +76,7 @@ void empty_queue(queue *my_queue) {
 	}
 	
 	my_queue->first = my_queue->last = NULL;
+	my_queue->num_elems = 0;
 }
 
 int queue_is_empty(queue my_queue)
@@ -82,7 +91,25 @@ int geng(int argc, char *argv[]); //entry point for geng
 //Sends the data to the master using the GENERATOR_OUTPUT_TAG
 void geng_callback(FILE *file, graph *g, int n)
 {
+	MPI_Status status;
 	//printf("Generator: got graph\n");
+	
+	int stop;
+	
+	//Check if the master wants us to pause
+	MPI_Iprobe(0, GENERATOR_PAUSE_TAG, MPI_COMM_WORLD, &stop, &status);
+	if(stop)
+	{
+		//Empty this message from the queue
+		MPI_Recv(0, 0, MPI_INT, 0, GENERATOR_PAUSE_TAG, MPI_COMM_WORLD,
+				 &status);
+		//printf("generator: got pause message, waiting...\n");
+		//Wait for the resume message
+		MPI_Recv(0, 0, MPI_INT, 0, GENERATOR_RESUME_TAG, MPI_COMM_WORLD,
+				 &status);
+		//printf("generator: done waiting\n");
+	}
+	
 	MPI_Send(g,
 		 get_nauty_graph_size(n),
 		 MPI_SETWORD,
@@ -119,7 +146,7 @@ void generator()
 			 &status);
 		
 		if(status.MPI_TAG == GENERATOR_KILL_TAG) {
-			printf("Generator: got kill message, returning...\n");
+			//printf("Generator: got kill message, returning...\n");
 			return;
 		}
 		
@@ -155,12 +182,13 @@ void master()
 {
 	MPI_Status status;
 	int ntasks;
-	int num_vertices = 14;
-	int generator_done = 0, master_done = 0;
+	int num_vertices = 11;
+	int generator_done = 0, master_done = 0, generator_paused = 0;
 	queue_element *element;
 	queue my_queue = {
 		first: NULL,
-		last: NULL
+		last: NULL,
+		num_elems: 0
 	};
 	
 	MPI_Comm_size(MPI_COMM_WORLD, &ntasks);
@@ -170,7 +198,8 @@ void master()
 		int min_result = (int) GRAPH_INFINITY;
 		queue min_graphs = {
 			first: NULL,
-			last: NULL
+			last: NULL,
+			num_elems: 0
 		};
 		
 		for (int i = 1; i < ntasks; i++)
@@ -230,6 +259,21 @@ void master()
 								 MPI_COMM_WORLD);
 						workers[i] = element->graph;
 						free(element);
+					}
+					
+					if(!generator_paused && my_queue.num_elems > MAX_ELEMS_IN_QUEUE)
+					{
+						MPI_Send(0, 0, MPI_INT, 1, GENERATOR_PAUSE_TAG,
+								 MPI_COMM_WORLD);
+						generator_paused = 1;
+						//printf("Master: pausing generator\n");
+					}
+					if(generator_paused && my_queue.num_elems < MIN_ELEMS_IN_QUEUE)
+					{
+						MPI_Send(0, 0, MPI_INT, 1, GENERATOR_RESUME_TAG,
+								 MPI_COMM_WORLD);
+						generator_paused = 0;
+						//printf("Master: resuming generator\n");
 					}
 					break;
 					
@@ -306,6 +350,14 @@ void master()
 							 MPI_COMM_WORLD);
 					workers[status.MPI_SOURCE - 2] = element->graph;
 					free(element);
+
+					if(generator_paused && my_queue.num_elems < MIN_ELEMS_IN_QUEUE)
+					{
+						MPI_Send(0, 0, MPI_INT, 1, GENERATOR_RESUME_TAG,
+								 MPI_COMM_WORLD);
+						generator_paused = 0;
+						//printf("Master: resuming generator\n");
+					}
 			}
 		}
 	
