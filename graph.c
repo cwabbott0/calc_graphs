@@ -46,7 +46,7 @@ void get_nauty_degree_num_links(graph *g, int n, int *degree, int *num_links)
 int sum_total_distances(problem_graph g) {
 	int ret = 0;
 	for (int i = 0; i < g.n; i++)
-		for (int j = 0; j < g.n; j++)
+		for (int j = i + 1; j < g.n; j++)
 			ret += g.distances[g.n*i + j];
 	return ret;
 }

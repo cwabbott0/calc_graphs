@@ -1,7 +1,7 @@
 CC=mpicc
 GENG_MAIN=geng
 OBJECTS=calc_graphs.o graph.o geng.o
-CFLAGS=-I. -I./nauty24r2 -std=c99 -g
+CFLAGS=-I. -I./nauty24r2 -std=c99 -O3
 GENG_OBJECTS=nauty24r2/gtools.o nauty24r2/nauty1.o nauty24r2/nautil1.o nauty24r2/naugraph1.o #objects required by geng
 
 all: calc_graphs

@@ -126,7 +126,7 @@ int call_geng(unsigned int n)
 	char *geng_args[] = {
 		"geng",
 		"-ucq",
-		"-D4",
+		"-D3",
 		""
 	};
 	sprintf(n_buf, "%d", n);
@@ -182,7 +182,7 @@ void master()
 {
 	MPI_Status status;
 	int ntasks;
-	int num_vertices = 11;
+	int num_vertices = 8;
 	int generator_done = 0, master_done = 0, generator_paused = 0;
 	queue_element *element;
 	queue my_queue = {
